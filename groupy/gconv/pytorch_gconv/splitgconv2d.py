@@ -45,6 +45,7 @@ class SplitGConv2D(nn.Module):
                  stride=1,
                  pad=0,
                  bias=True,
+                 transposed=False,
                  *args, **kwargs):
         """
         :param in_channels:
@@ -56,7 +57,6 @@ class SplitGConv2D(nn.Module):
         :param bias:
         :return:
         """
-
         super(SplitGConv2D, self).__init__(*args, **kwargs)
 
         if not isinstance(ksize, int):
@@ -70,6 +70,7 @@ class SplitGConv2D(nn.Module):
         self.pad = _pair(pad)
         self.flat_channels = flat_channels
         self.use_bias = bias
+        self.transpose = transposed
 
         self.weight = nn.Parameter(torch.Tensor(self.out_channels,
                                                 self.in_channels,
@@ -104,11 +105,11 @@ class SplitGConv2D(nn.Module):
         return transform_indices
 
     @property
-    def input_stabilizer_size():
+    def input_stabilizer_size(self):
         raise NotImplementedError()
 
     @property
-    def output_stabilizer_size():
+    def output_stabilizer_size(self):
         raise NotImplementedError()
 
     def make_transformation_indices(self, ksize):
@@ -119,7 +120,7 @@ class SplitGConv2D(nn.Module):
         w_flat_ = self.weight.view(self.weight_flat_shape)
         w_flat = w_flat_.expand(*self.expand_shape)
         w = torch.gather(w_flat, 3, Variable(self.transform_indices)) \
-                 .view(self.weight_shape)
+            .view(self.weight_shape)
 
         # If flat_channels is False, we need to flatten the input feature maps
         # to have a single 1d feature dimension.
@@ -132,7 +133,11 @@ class SplitGConv2D(nn.Module):
                        in_nx)
 
         # Perform the 2D convolution
-        y = F.conv2d(x, w, stride=self.stride, padding=self.pad)
+        if self.transpose:
+            w = w.permute(1, 0, 2, 3)
+            y = F.conv_transpose2d(x, w, stride=self.stride, padding=self.pad)
+        else:
+            y = F.conv2d(x, w, stride=self.stride, padding=self.pad)
 
         # Unfold the output feature maps
         # We do this even if flat_channels is True, because we need to add the
